@@ -25,7 +25,9 @@ from pathlib import Path
 from glossary import Glossary
 from zhconv import to_traditional
 
-APP_DIR = Path(__file__).resolve().parent
+# 打包成 exe 時（PyInstaller），模型、設定、名詞對照表放在 exe 旁邊，不在暫存的程式資料夾
+FROZEN = getattr(sys, "frozen", False)
+APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
 IS_WIN = sys.platform.startswith("win")
 SERVER = APP_DIR / "bin" / ("windows/llama-server.exe" if IS_WIN else "linux/llama-server")
 MODEL_DIR = APP_DIR / "models"
@@ -136,7 +138,38 @@ class Engine:
                 self.proc.kill()
 
 
+def selftest() -> None:
+    """打包後的自我檢查（GitHub Actions 的 Windows 主機上執行）：每個用到的元件都要載得起來。
+    結果寫到 exe 旁邊的 selftest.txt（視窗程式沒有主控台輸出）。"""
+    lines, ok = [], True
+
+    def check(name, fn, required=True):
+        nonlocal ok
+        try:
+            lines.append(f"OK   {name}: {fn()}")
+        except Exception as e:  # noqa: BLE001
+            ok = ok and not required
+            lines.append(f"{'FAIL' if required else 'WARN'} {name}: {type(e).__name__}: {e}")
+
+    check("tkinter", lambda: __import__("tkinter").TkVersion)
+    check("ctranslate2", lambda: __import__("ctranslate2").__version__)
+    check("faster_whisper", lambda: __import__("faster_whisper").__version__)
+    # Linux 沒裝 PortAudio 時改用 arecord，不算失敗；Windows 一定要有
+    check("sounddevice/PortAudio", lambda: __import__("sounddevice").get_portaudio_version()[1], required=IS_WIN)
+    check("opencc", lambda: to_traditional("贊成代表比例的产生"))
+    check("speech", lambda: __import__("speech").SR)
+    check("ui", lambda: __import__("ui").DIRECTIONS[0][1])
+    check("glossary", lambda: len(GLOSSARY.terms("疾病管制署今天宣布", "zh")))
+    check("llama-server", lambda: subprocess.run([str(SERVER), "--version"], capture_output=True, text=True,
+                                                 timeout=60, cwd=str(SERVER.parent)).stderr.strip().splitlines()[0])
+    lines.append("RESULT " + ("PASS" if ok else "FAIL"))
+    (APP_DIR / "selftest.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    sys.exit(0 if ok else 1)
+
+
 def main() -> None:
+    if "--selftest" in sys.argv:
+        selftest()
     try:
         if IS_WIN:
             import ctypes

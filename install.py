@@ -16,7 +16,7 @@ import venv
 import zipfile
 from pathlib import Path
 
-APP = Path(__file__).resolve().parent
+APP = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 IS_WIN = sys.platform.startswith("win")
 VENV = APP / ".venv"
 VPY = VENV / ("Scripts/python.exe" if IS_WIN else "bin/python")
@@ -37,7 +37,8 @@ MODELS = [
 ]
 
 
-def download(url: str, dest: Path) -> None:
+def download(url: str, dest: Path, progress=None) -> None:
+    """progress(已下載, 總共)：給視窗顯示進度；沒給就印在終端機。"""
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     have = part.stat().st_size if part.exists() else 0
@@ -51,9 +52,12 @@ def download(url: str, dest: Path) -> None:
             while chunk := r.read(1 << 20):
                 f.write(chunk)
                 done += len(chunk)
-                if total:
+                if progress:
+                    progress(done, total)
+                elif total:
                     print(f"\r  {dest.name}：{done / 2**20:,.0f} / {total / 2**20:,.0f} MB", end="", flush=True)
-    print()
+    if not progress:
+        print()
     part.replace(dest)
 
 

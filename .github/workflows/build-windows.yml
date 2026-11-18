@@ -1,0 +1,80 @@
+# Windows 執行檔：在 GitHub 的 Windows 主機上用 PyInstaller 打包，打包完實際執行 --selftest，
+# 通過才上傳。推 v* 標籤時自動跑；也可以在 Actions 頁面手動執行（指定要附到哪個 Release）。
+name: Build Windows exe
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "附到哪個 Release（例如 v1.0.0）；空白就只產生下載檔，不附到 Release"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 打包
+        run: |
+          pyinstaller --noconfirm --windowed --name SpeechTranslate `
+            --collect-data faster_whisper --collect-data opencc --collect-binaries ctranslate2 `
+            --collect-all _sounddevice_data `
+            --hidden-import ui --hidden-import speech --hidden-import overlay --hidden-import widgets `
+            --hidden-import install --hidden-import glossary --hidden-import zhconv `
+            translator.py
+
+      - name: 放入 llama.cpp、名詞對照表、說明
+        run: |
+          $dist = "dist/SpeechTranslate"
+          $url = python -c "import install; print(install.LLAMA_URL)"
+          Invoke-WebRequest $url -OutFile llama.zip
+          Expand-Archive llama.zip -DestinationPath "$dist/bin/windows"
+          Copy-Item "名詞對照表.csv", README.md -Destination $dist
+
+      - name: 自我檢查（實際執行 exe）
+        run: |
+          $dist = "dist/SpeechTranslate"
+          $p = Start-Process "$dist/SpeechTranslate.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content "$dist/selftest.txt"
+          if ($p.ExitCode -ne 0) { throw "selftest failed (exit $($p.ExitCode))" }
+          Remove-Item "$dist/selftest.txt"
+
+      - name: 壓縮
+        id: zip
+        run: |
+          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "${{ inputs.tag }}" }
+          $name = if ($tag) { "SpeechTranslate-Windows-$tag.zip" } else { "SpeechTranslate-Windows.zip" }
+          Compress-Archive -Path dist/SpeechTranslate -DestinationPath $name
+          "name=$name" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "{0:N0} MB" -f ((Get-Item $name).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpeechTranslate-Windows
+          path: ${{ steps.zip.outputs.name }}
+
+      - name: 附到 Release
+        if: steps.zip.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.zip.outputs.tag }}" "${{ steps.zip.outputs.name }}" --clobber

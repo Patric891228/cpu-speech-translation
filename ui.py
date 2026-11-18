@@ -197,7 +197,29 @@ class App:
 
     # ---------- 載入 ----------
 
+    def _download_missing(self) -> None:
+        """第一次開啟（exe 版）：下載翻譯引擎和模型，狀態列顯示進度。中斷了下次會接著下載。"""
+        import install
+        if not core.SERVER.exists():
+            self.q.put(("status", "第一次使用：正在下載翻譯引擎…"))
+            install.setup_llama()
+        todo = [(d, u) for d, u in install.MODELS if not d.exists()]
+        for n, (dest, url) in enumerate(todo, 1):
+            last = [0.0]
+
+            def prog(done, total, name=dest.name, n=n):
+                if time.time() - last[0] > 0.5:
+                    last[0] = time.time()
+                    pct = f"{done / total:.0%}" if total else f"{done / 2**20:,.0f} MB"
+                    self.q.put(("status", f"第一次使用：正在下載模型（{n}/{len(todo)}）{name}　{pct}"))
+            install.download(url, dest, progress=prog)
+
     def load(self) -> None:
+        try:
+            self._download_missing()
+        except Exception as e:  # noqa: BLE001
+            self.q.put(("fatal", f"下載模型失敗：{e}\n\n第一次使用需要網路。請確認網路後重新開啟，會接著下載。"))
+            return
         model = core.find_model()
         if not core.SERVER.exists():
             self.q.put(("fatal", f"找不到翻譯引擎：\n{core.SERVER}\n\n請重新執行啟動檔完成安裝。"))
