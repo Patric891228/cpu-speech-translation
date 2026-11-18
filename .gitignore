@@ -3,3 +3,4 @@ bin/
 models/
 __pycache__/
 *.part
+settings.json
