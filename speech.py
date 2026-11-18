@@ -14,6 +14,8 @@ from typing import Callable
 
 import numpy as np
 
+from zhconv import to_traditional
+
 SR = 16000
 FRAME = 480  # 30 ms
 
@@ -186,6 +188,8 @@ class Recognizer:
                 continue
             parts.append(s.text.strip())
         text = ("" if lang == "zh" else " ").join(parts).strip()
+        if lang == "zh":
+            text = to_traditional(text)
         return lang, text
 
 

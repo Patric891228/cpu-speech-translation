@@ -59,8 +59,9 @@ def download(url: str, dest: Path) -> None:
 
 def setup_venv() -> None:
     marker = VENV / ".installed"
-    if marker.exists():
-        return
+    req = (APP / "requirements.txt").read_text(encoding="utf-8")
+    if marker.exists() and marker.read_text(encoding="utf-8") == req:
+        return  # 套件清單沒變：不用重裝
     print("建立 Python 虛擬環境、安裝套件（第一次需要幾分鐘）…")
     if not VPY.exists():
         try:
@@ -69,7 +70,7 @@ def setup_venv() -> None:
             sys.exit(f"無法建立虛擬環境：{e}\nUbuntu 請先執行：sudo apt install python3-venv python3-tk")
     subprocess.check_call([str(VPY), "-m", "pip", "install", "-q", "--disable-pip-version-check",
                            "-r", str(APP / "requirements.txt")])
-    marker.write_text("ok")
+    marker.write_text(req, encoding="utf-8")
 
 
 def setup_llama() -> None:

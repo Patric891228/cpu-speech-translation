@@ -27,6 +27,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 
+from zhconv import to_traditional
+
 APP_DIR = Path(__file__).resolve().parent
 IS_WIN = sys.platform.startswith("win")
 SERVER = APP_DIR / "bin" / ("windows/llama-server.exe" if IS_WIN else "linux/llama-server")
@@ -118,7 +120,8 @@ class Engine:
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/completion",
                                      data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         with self.lock, urllib.request.urlopen(req, timeout=600) as r:
-            return json.load(r)["content"].strip()
+            out = json.load(r)["content"].strip()
+        return to_traditional(out) if tgt == "zh" else out
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
