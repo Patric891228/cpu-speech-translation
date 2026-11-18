@@ -27,6 +27,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 
+from glossary import Glossary
 from zhconv import to_traditional
 
 APP_DIR = Path(__file__).resolve().parent
@@ -34,6 +35,7 @@ IS_WIN = sys.platform.startswith("win")
 SERVER = APP_DIR / "bin" / ("windows/llama-server.exe" if IS_WIN else "linux/llama-server")
 MODEL_DIR = APP_DIR / "models"
 WHISPER_DIR = MODEL_DIR / "whisper-small"
+GLOSSARY = Glossary(APP_DIR / "名詞對照表.csv")
 
 LANGS = {
     "zh": ("Chinese", "zh", "Traditional Chinese", "zh-TW"),  # 當來源用前兩個，當目標用後兩個
@@ -50,12 +52,17 @@ def find_model() -> Path | None:
     return files[0] if files else None
 
 
-def build_prompt(text: str, src: str, tgt: str) -> str:
-    """TranslateGemma 訓練時用的提示詞格式。"""
+def build_prompt(text: str, src: str, tgt: str, terms: list[tuple[str, str]] | None = None) -> str:
+    """TranslateGemma 訓練時用的提示詞格式；有名詞對照時，原文先換成指定譯名，前面再加上對照說明。"""
+    head = ""
+    if terms:
+        text = Glossary.apply(text, terms, quote=tgt == "zh")
+        head = "Refer to the following translations:\n" + \
+               "\n".join(f"{s} is translated as {t}" for s, t in terms) + "\n\n"
     sl, sc = LANGS[src][0], LANGS[src][1]
     tl, tc = LANGS[tgt][2], LANGS[tgt][3]
     extra = " Use the vocabulary and phrasing customary in Taiwan." if tgt == "zh" else ""
-    return (f"You are a professional {sl} ({sc}) to {tl} ({tc}) translator. Your goal is to accurately "
+    return head + (f"You are a professional {sl} ({sc}) to {tl} ({tc}) translator. Your goal is to accurately "
             f"convey the meaning and nuances of the original {sl} text while adhering to {tl} grammar, "
             f"vocabulary, and cultural sensitivities.{extra}\nProduce only the {tl} translation, without any "
             f"additional explanations or commentary. Please translate the following {sl} text into {tl}:"
@@ -114,13 +121,15 @@ class Engine:
 
     def translate(self, text: str, src: str, tgt: str) -> str:
         # 自己套 Gemma 對話格式送 /completion（不靠 llama-server 的 chat template，版本間行為不一）
-        prompt = f"<start_of_turn>user\n{build_prompt(text, src, tgt)}<end_of_turn>\n<start_of_turn>model\n"
+        terms = GLOSSARY.terms(text, src)
+        prompt = f"<start_of_turn>user\n{build_prompt(text, src, tgt, terms)}<end_of_turn>\n<start_of_turn>model\n"
         body = {"prompt": prompt, "temperature": 0, "n_predict": min(2048, len(text) * 4 + 64),
                 "stop": ["<end_of_turn>"], "cache_prompt": True}
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/completion",
                                      data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         with self.lock, urllib.request.urlopen(req, timeout=600) as r:
             out = json.load(r)["content"].strip()
+        out = Glossary.unquote(out, terms)
         return to_traditional(out) if tgt == "zh" else out
 
     def stop(self) -> None:
@@ -187,6 +196,7 @@ class App:
         self.v_btn = ttk.Button(bar, text="開始", command=self.on_voice, state="disabled", width=8)
         self.v_btn.pack(side="right")
         ttk.Button(bar, text="存檔", command=self.on_save).pack(side="right", padx=4)
+        ttk.Button(bar, text="名詞對照表", command=self.on_glossary).pack(side="right")
         ttk.Button(bar, text="清除", command=self.on_voice_clear).pack(side="right")
 
         bar2 = ttk.Frame(tab)
@@ -232,6 +242,7 @@ class App:
         self.t_btn.pack(side="right")
         ttk.Button(top, text="清除", command=self.on_text_clear).pack(side="right", padx=6)
         ttk.Button(top, text="複製譯文", command=self.on_copy).pack(side="right")
+        ttk.Button(top, text="名詞對照表", command=self.on_glossary).pack(side="right", padx=6)
         body = ttk.PanedWindow(tab, orient="horizontal")
         body.pack(fill="both", expand=True)
         self.src = self._textbox(body, "原文（貼上要翻譯的文字）")
@@ -303,6 +314,7 @@ class App:
 
     def _heard(self, lang: str, text: str) -> None:
         """辨識出一句：先顯示原文，譯文位置放「翻譯中…」，交給翻譯執行緒。"""
+        text = GLOSSARY.correct(text)
         self.n += 1
         tag = f"s{self.n}"
         at_end = self.log.yview()[1] > 0.98
@@ -334,6 +346,18 @@ class App:
             except Exception as e:  # noqa: BLE001
                 out = f"（翻譯失敗：{e}）"
             self.q.put(("translated", tag, out))
+
+    def on_glossary(self) -> None:
+        """用系統預設程式（Excel、LibreOffice…）開啟名詞對照表；存檔後下一句就生效。"""
+        path = GLOSSARY.path
+        try:
+            if IS_WIN:
+                os.startfile(path)  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.status.set("名詞對照表存檔後，下一句就會套用")
+        except Exception as e:  # noqa: BLE001
+            messagebox.showinfo("名詞對照表", f"請用 Excel 或記事本開啟：\n{path}\n\n（{e}）")
 
     def on_voice_clear(self) -> None:
         self.log.configure(state="normal")
