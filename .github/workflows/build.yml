@@ -1,6 +1,6 @@
-# Windows 執行檔：在 GitHub 的 Windows 主機上用 PyInstaller 打包，打包完實際執行 --selftest，
+# 執行檔（Windows exe、Linux）：在 GitHub 的 Windows／Ubuntu 主機上用 PyInstaller 打包，打包完實際執行 --selftest，
 # 通過才上傳。推 v* 標籤時自動跑；也可以在 Actions 頁面手動執行（指定要附到哪個 Release）。
-name: Build Windows exe
+name: Build executables
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     defaults:
       run:
@@ -78,3 +78,66 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ steps.zip.outputs.tag }}" "${{ steps.zip.outputs.name }}" --clobber
+
+  build-linux:
+    # 在較舊的 Ubuntu 打包：glibc 向後相容，22.04 打的程式可以在 24.04、26.04 執行
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tk-dev libtk8.6 libtcl8.6
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: 打包
+        run: |
+          pyinstaller --noconfirm --windowed --name SpeechTranslate \
+            --collect-data faster_whisper --collect-data opencc --collect-binaries ctranslate2 \
+            --hidden-import ui --hidden-import speech --hidden-import overlay --hidden-import widgets \
+            --hidden-import install --hidden-import glossary --hidden-import zhconv \
+            translator.py
+
+      - name: 放入 llama.cpp、名詞對照表、說明
+        run: |
+          dist=dist/SpeechTranslate
+          url=$(python -c "import install; print(install.LLAMA_URL)")
+          curl -sSL -o llama.tar.gz "$url"
+          mkdir -p $dist/bin/linux
+          tar xzf llama.tar.gz -C $dist/bin/linux --strip-components=1
+          chmod +x $dist/bin/linux/llama-server
+          cp 名詞對照表.csv README.md $dist/
+
+      - name: 自我檢查（實際執行）
+        run: |
+          dist=dist/SpeechTranslate
+          $dist/SpeechTranslate --selftest || { cat $dist/selftest.txt; exit 1; }
+          cat $dist/selftest.txt
+          rm $dist/selftest.txt
+
+      - name: 壓縮
+        id: pack
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then tag="${{ github.ref_name }}"; else tag="${{ inputs.tag }}"; fi
+          name=$([ -n "$tag" ] && echo "SpeechTranslate-Linux-$tag.tar.gz" || echo "SpeechTranslate-Linux.tar.gz")
+          tar czf "$name" -C dist SpeechTranslate
+          echo "name=$name" >> $GITHUB_OUTPUT
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+          du -h "$name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpeechTranslate-Linux
+          path: ${{ steps.pack.outputs.name }}
+
+      - name: 附到 Release
+        if: steps.pack.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.pack.outputs.tag }}" "${{ steps.pack.outputs.name }}" --clobber

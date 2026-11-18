@@ -60,7 +60,7 @@
 | `glossary.py`、`名詞對照表.csv` | 名詞對照表 |
 | `zhconv.py` | 簡體轉繁體（不誤改本來就對的繁體字） |
 | `install.py` | 第一次執行的安裝與下載 |
-| `.github/workflows/build-windows.yml` | 推 `v*` 標籤時在 GitHub 的 Windows 主機打包 exe，實際執行 `--selftest` 通過才附到 Release |
+| `.github/workflows/build.yml` | 推 `v*` 標籤時在 GitHub 的 Windows 主機打包 exe，實際執行 `--selftest` 通過才附到 Release |
 | `bin/`、`models/`、`.venv/` | 安裝時產生，不放進 git |
 
 ## 授權
