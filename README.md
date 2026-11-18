@@ -10,10 +10,18 @@
 
 到 [Releases](https://github.com/Patric891228/cpu-speech-translation/releases) 下載。
 
-**Windows（建議）**：下載 `SpeechTranslate-Windows-版本.zip`，解壓縮後雙擊 `SpeechTranslate.exe`。不用安裝 Python。
-第一次開啟會自動下載模型（約 3GB，需要網路，狀態列顯示進度），之後離線可用。
+都不用安裝 Python。第一次開啟會自動下載模型（約 3GB，需要網路，狀態列顯示進度），之後離線可用。
 
-**Linux，或想用原始碼執行**：下載 `cpu-speech-translation-版本.zip`
+**Windows**：下載 `SpeechTranslate-Windows-版本.zip`，解壓縮後雙擊 `SpeechTranslate.exe`。
+
+**Linux**（Ubuntu 22.04 以上）：下載 `SpeechTranslate-Linux-版本.tar.gz`，在終端機執行：
+
+```bash
+tar xzf SpeechTranslate-Linux-*.tar.gz
+./SpeechTranslate/SpeechTranslate
+```
+
+**想用原始碼執行**：下載 Source code (zip)
 - Ubuntu 先執行 `sudo apt install python3-tk python3-venv`，再執行 `./啟動翻譯.sh`
 - Windows 先從 [python.org](https://www.python.org/downloads/) 安裝 Python 3，再雙擊 `啟動翻譯.bat`
 
