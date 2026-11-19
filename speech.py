@@ -157,7 +157,7 @@ def is_junk(text: str) -> bool:
 class Recognizer:
     def __init__(self, model_dir: Path):
         from faster_whisper import WhisperModel
-        threads = max(2, min(8, (os.cpu_count() or 4) // 2))
+        threads = max(2, min(8, os.cpu_count() or 4))  # 9 代 i5 實測：6 執行緒比 3 快 20%
         self.model = WhisperModel(str(model_dir), device="cpu", compute_type="int8", cpu_threads=threads)
 
     def transcribe(self, audio: np.ndarray, lang: str | None) -> tuple[str, str]:

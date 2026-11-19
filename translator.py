@@ -22,6 +22,9 @@ import time
 import urllib.request
 from pathlib import Path
 
+# 語音辨識（CTranslate2/OpenMP）做完一句後，執行緒預設會空轉等下一個工作，搶走翻譯要用的 CPU
+os.environ.setdefault("OMP_WAIT_POLICY", "PASSIVE")
+
 from glossary import Glossary
 from zhconv import to_traditional
 
@@ -50,19 +53,20 @@ def find_model() -> Path | None:
 
 
 def build_prompt(text: str, src: str, tgt: str, terms: list[tuple[str, str]] | None = None) -> str:
-    """TranslateGemma 訓練時用的提示詞格式；有名詞對照時，原文先換成指定譯名，前面再加上對照說明。"""
-    head = ""
+    """TranslateGemma 訓練時用的提示詞格式；有名詞對照時，原文先換成指定譯名，原文前面再加上對照說明。"""
+    ref = " "
     if terms:
         text = Glossary.apply(text, terms, quote=tgt == "zh")
-        head = "Refer to the following translations:\n" + \
-               "\n".join(f"{s} is translated as {t}" for s, t in terms) + "\n\n"
+        ref = "\n\nRefer to the following translations:\n" + \
+              "\n".join(f"{s} is translated as {t}" for s, t in terms) + "\n\n"
     sl, sc = LANGS[src][0], LANGS[src][1]
     tl, tc = LANGS[tgt][2], LANGS[tgt][3]
     extra = " Use the vocabulary and phrasing customary in Taiwan." if tgt == "zh" else ""
-    return head + (f"You are a professional {sl} ({sc}) to {tl} ({tc}) translator. Your goal is to accurately "
+    # 固定的說明放最前面、每句會變的（名詞對照、原文）放後面：llama-server 才能重用前面算好的部分
+    return (f"You are a professional {sl} ({sc}) to {tl} ({tc}) translator. Your goal is to accurately "
             f"convey the meaning and nuances of the original {sl} text while adhering to {tl} grammar, "
             f"vocabulary, and cultural sensitivities.{extra}\nProduce only the {tl} translation, without any "
-            f"additional explanations or commentary. Please translate the following {sl} text into {tl}:"
+            f"additional explanations or commentary.{ref}Please translate the following {sl} text into {tl}:"
             f"\n\n\n{text}")
 
 
@@ -94,7 +98,7 @@ class Engine:
     def start(self) -> None:
         # 執行緒數交給 llama.cpp 自己判斷（13 代以後有大小核，它會挑效能核）
         cmd = [str(SERVER), "-m", str(self.model), "--host", "127.0.0.1", "--port", str(self.port),
-               "-c", "4096", "--no-webui"]
+               "-c", "4096", "--no-webui", "--swa-full"]
         kw: dict = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "cwd": str(SERVER.parent)}
         if IS_WIN:
             kw["creationflags"] = 0x08000000  # CREATE_NO_WINDOW：不要跳黑視窗
